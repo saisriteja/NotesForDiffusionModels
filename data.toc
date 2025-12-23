@@ -8,29 +8,34 @@
 \contentsline {subsection}{\numberline {2.1.2}Forward Step in Diffusion Process}{4}{subsection.2.1.2}%
 \contentsline {subsection}{\numberline {2.1.3}Reverse Step in Diffusion Process}{5}{subsection.2.1.3}%
 \contentsline {paragraph}{Trick: Introduce latent diffusion states.}{5}{section*.3}%
-\contentsline {paragraph}{Why this helps.}{5}{section*.4}%
-\contentsline {paragraph}{Key idea.}{5}{section*.5}%
+\contentsline {paragraph}{Why this helps.}{6}{section*.4}%
+\contentsline {paragraph}{Key idea.}{6}{section*.5}%
 \contentsline {paragraph}{The Reconstruction Term.}{8}{section*.11}%
-\contentsline {paragraph}{The Prior Matching Term.}{8}{section*.12}%
+\contentsline {paragraph}{The Prior Matching Term.}{9}{section*.12}%
 \contentsline {paragraph}{Recognizing the KL Divergence.}{9}{section*.13}%
 \contentsline {paragraph}{Summary.}{9}{section*.14}%
 \contentsline {paragraph}{Reducing the Expectation}{10}{section*.16}%
 \contentsline {paragraph}{Conditional Independence Factorization}{10}{section*.17}%
-\contentsline {paragraph}{Recognizing KL Divergence}{10}{section*.18}%
+\contentsline {paragraph}{Recognizing KL Divergence}{11}{section*.18}%
 \contentsline {paragraph}{Parameterization in Practice}{11}{section*.19}%
-\contentsline {paragraph}{Factorization of joint distributions.}{12}{section*.23}%
+\contentsline {paragraph}{Factorization of joint distributions.}{13}{section*.23}%
 \contentsline {paragraph}{Splitting the chain.}{13}{section*.24}%
 \contentsline {paragraph}{Manipulating the product term.}{13}{section*.25}%
-\contentsline {paragraph}{Combining terms.}{13}{section*.26}%
-\contentsline {paragraph}{Reconstruction and prior matching.}{13}{section*.27}%
+\contentsline {paragraph}{Combining terms.}{14}{section*.26}%
+\contentsline {paragraph}{Reconstruction and prior matching.}{14}{section*.27}%
 \contentsline {paragraph}{Consistency term.}{14}{section*.28}%
 \contentsline {paragraph}{Final ELBO.}{14}{section*.29}%
 \contentsline {paragraph}{Theorem 2.5.}{14}{section*.31}%
-\contentsline {paragraph}{Constructing $p_\theta (x_{t-1} \mid x_t)$.}{14}{section*.32}%
+\contentsline {paragraph}{Constructing $p_\theta (x_{t-1} \mid x_t)$.}{15}{section*.32}%
 \contentsline {subsection}{\numberline {2.1.4}Training and Inference}{15}{subsection.2.1.4}%
 \contentsline {subsection}{\numberline {2.1.5}Prediction of Noise}{17}{subsection.2.1.5}%
 \contentsline {subsection}{\numberline {2.1.6}Probability Distributions in DDIM}{18}{subsection.2.1.6}%
-\contentsline {chapter}{\numberline {3}Methodology}{21}{chapter.3}%
-\contentsline {chapter}{\numberline {4}Experiments}{22}{chapter.4}%
-\contentsline {chapter}{\numberline {5}Conclusion}{23}{chapter.5}%
-\contentsline {chapter}{\numberline {A}Appendix}{24}{appendix.A}%
+\contentsline {subsection}{\numberline {2.1.7}Inference for DDIM}{19}{subsection.2.1.7}%
+\contentsline {section}{\numberline {2.2}IDDPM Sampler}{20}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Learning the Variance}{20}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Better Noise Scheduling: Cosine Rule}{23}{subsection.2.2.2}%
+\contentsline {section}{\numberline {2.3}EDM Sampler}{23}{section.2.3}%
+\contentsline {chapter}{\numberline {3}Methodology}{24}{chapter.3}%
+\contentsline {chapter}{\numberline {4}Experiments}{25}{chapter.4}%
+\contentsline {chapter}{\numberline {5}Conclusion}{26}{chapter.5}%
+\contentsline {chapter}{\numberline {A}Appendix}{27}{appendix.A}%

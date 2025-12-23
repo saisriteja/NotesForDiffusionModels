@@ -7,14 +7,12 @@ This chapter presents an overview of various sampling strategies used in diffusi
     \item \textbf{DDIM} (Denoising Diffusion Implicit Models)
     \item \textbf{DDPM} (Denoising Diffusion Probabilistic Models)
     \item \textbf{iDDPM} (Improved Denoising Diffusion Probabilistic Models)
-    \item \textbf{Euler Sampler} and variants
+    \item \textbf{Score-based Models} (Score-based Generative Models)
+    \item \textbf{EDM Sampler}
+    \item \textbf{Euler Sampler} 
 \end{enumerate}
 
 \vspace{0.5em}
-
-
-
-
 
 
 \section{DDPM Sampler}
@@ -1181,3 +1179,192 @@ For the special case $t = 1$, the reverse process is defined as
 p_\theta(x_0 \mid x_1) = \mathcal{N}\!\left(f_\theta^{(1)}(x_1), \sigma_1^2 I \right),
 \]
 ensuring that the final reconstruction is supported everywhere.
+
+
+
+\section{IDDPM Sampler}
+
+\subsection{Learning the Variance}
+
+The learned reverse process in DDPMs is parameterized as:
+\begin{equation}
+    p_\theta(x_{t-1}\mid x_t) = \mathcal{N}\big(x_{t-1};\, \mu_\theta(x_t, t),\, \Sigma_\theta(x_t, t)\big)
+\end{equation}
+where the mean $\mu_\theta$ influences sample quality and the variance $\Sigma_\theta$ is crucial for likelihood calibration.
+
+\vspace{1em}
+
+\textbf{Goal:}
+\begin{itemize}
+    \item Learn $\mu_\theta$: improves sample quality.
+    \item Learn $\Sigma_\theta$: calibrates log-likelihood.
+\end{itemize}
+
+\vspace{1em}
+
+Ho et al.\ (2020) originally set the variance to fixed values:
+\begin{equation}
+    \Sigma_\theta(x_t, t) = \sigma_t^2 I
+\end{equation}
+with $\sigma_t^2$ chosen as either
+\begin{equation}
+    \sigma_t^2 = \beta_t \qquad \text{or} \qquad \sigma_t^2 = \tilde{\beta}_t
+\end{equation}
+Empirically, both selections yield similar sample quality:
+\[
+    \text{Sample quality}(\beta_t) \approx \text{Sample quality}(\tilde{\beta}_t)
+\]
+
+The true posterior is:
+\begin{equation}
+    q(x_{t-1}\mid x_t, x_0) = \mathcal{N}(\tilde{\mu}_t,\, \tilde{\beta}_t I)
+\end{equation}
+For most $t$,
+\[
+    \frac{\tilde{\beta}_t}{\beta_t} \approx 1
+\]
+As $T \to \infty$, $\tilde{\beta}_t \to \beta_t$. So, sampling is primarily sensitive to $\mu_\theta$ rather than $\Sigma_\theta$:
+\[
+    \mu_\theta(x_t, t) \gg \Sigma_\theta(x_t, t) \quad \text{(for sampling)}
+\]
+
+\vspace{1em}
+
+\textbf{Variance and Log-Likelihood:}
+
+The variational lower bound (VLB) is:
+\begin{equation}
+    \mathcal{L}_{\text{vlb}} = \sum_{t=1}^T \mathbb{E}\left[
+        \mathrm{KL}\big(
+            q(x_{t-1}\mid x_t,x_0)\;\|\;
+            p_\theta(x_{t-1}\mid x_t)
+        \big)
+    \right]
+\end{equation}
+The earliest steps ($t \approx 1$) contribute most to the VLB, and in these, $\beta_t \not\approx \tilde{\beta}_t$. The variance choice affects NLL, but not sampling much.
+
+\vspace{1em}
+
+\textbf{Why Is Direct Variance Prediction Unstable?}
+
+The desired range for variance is narrow:
+\[
+    \Sigma_\theta(x_t, t)\in [\tilde{\beta}_t,\ \beta_t]
+\]
+A naive parameterization such as
+\[
+    \Sigma_\theta = \exp\big(f_\theta(x_t, t)\big)
+\]
+is numerically unstable (Ho et al., 2020).
+
+\vspace{1em}
+
+\textbf{Key: Interpolate in Log-Space}
+
+To resolve this, the model predicts an interpolation coefficient $v_\theta(x_t, t)\in\mathbb{R}^D$ and parameterizes the variance as:
+\begin{equation}
+    \Sigma_\theta(x_t, t) =
+        \exp\left(
+            v_\theta(x_t, t) \log \beta_t +
+            (1 - v_\theta(x_t, t)) \log \tilde{\beta}_t
+        \right)
+    \tag{15}
+\end{equation}
+which is equivalent to
+\[
+    \Sigma_\theta(x_t, t) = \beta_t^{v_\theta(x_t, t)} \, \tilde{\beta}_t^{1-v_\theta(x_t, t)}
+\]
+
+This parameterization ensures:
+\begin{itemize}
+    \item Smooth interpolation between $\tilde{\beta}_t$ and $\beta_t$,
+    \item Numerical stability,
+    \item Well-bounded variance values.
+\end{itemize}
+
+\vspace{1em}
+
+\textbf{Training Objective for Variance}
+
+The usual noise-prediction loss,
+\begin{equation}
+    \mathcal{L}_{\text{simple}} = \mathbb{E}\big[ \lVert \epsilon - \epsilon_\theta(x_t, t)\rVert^2 \big]
+\end{equation}
+does not affect the variance:
+\[
+    \frac{\partial \mathcal{L}_{\text{simple}}}{\partial \Sigma_\theta} = 0
+\]
+Therefore, $\mathcal{L}_{\text{simple}}$ does not learn the variance.
+
+A hybrid objective is used:
+\begin{equation}
+    \mathcal{L}_{\text{hybrid}} = 
+        \mathcal{L}_{\text{simple}} + 
+        \lambda\, \mathcal{L}_{\text{vlb}}
+    \tag{16}
+\end{equation}
+for example with $\lambda = 0.001$. In practice, a stop-gradient is applied to $\mu_\theta$ inside $\mathcal{L}_{\text{vlb}}$.
+
+\textbf{Effect:}
+\begin{itemize}
+    \item $\mathcal{L}_{\text{simple}}$ trains the mean.
+    \item $\mathcal{L}_{\text{vlb}}$ trains the variance.
+\end{itemize}
+
+\vspace{1em}
+
+\textbf{Summary (Mathematical Form):}
+\begin{equation}
+    \text{Sampling quality} \approx \mu_\theta
+    \qquad
+    \text{Log-likelihood} \approx \Sigma_\theta
+\end{equation}
+
+
+
+
+
+
+\subsection{Better Noise Scheduling: Cosine Rule}
+
+\textbf{Problem:} The linear $\beta_t$ schedule (Ho et al., 2020) makes $\bar{\alpha}_t = \prod_{s=1}^t (1-\beta_s)$ decay to 0 too quickly, so late steps mostly add noise without improving sample quality. Skipping up to 20\% of reverse steps barely affects FID.
+
+\textbf{Desired:} $\bar{\alpha}_t$ controls signal preservation in $q(x_t|x_0) = \mathcal{N}(\sqrt{\bar{\alpha}_t}x_0, (1-\bar{\alpha}_t)I)$. Information should be preserved longer and destroyed smoothly.
+
+\textbf{Cosine Proposal:}
+\begin{equation}
+    \bar{\alpha}_t = \frac{f(t)}{f(0)}, \quad 
+    f(t) = \cos^2\left(
+    \frac{t/T + s}{1+s} \frac{\pi}{2}
+    \right)
+    \tag{17}
+\end{equation}
+where $t \in \{0,\dots,T\}$ and $s > 0$ (typically $s=0.008$ for 8-bit images to ensure initial noise is below pixel quantization).
+
+\textbf{Recovering $\beta_t$:}
+\begin{equation}
+    \beta_t = 1 - \frac{\bar{\alpha}_t}{\bar{\alpha}_{t-1}}
+\end{equation}
+and in practice $\beta_t \leftarrow \min(\beta_t, 0.999)$ to avoid numerical issues.
+
+\textbf{Shape:} Cosine schedule yields $\bar{\alpha}_t$ decreasing nearly linearly in the middle, while both endpoints are flatter; this avoids abrupt noise injections or premature signal loss.
+
+\textbf{Offset $s$:} Without $s$, $\beta_0 \approx 0$, so the network sees almost no noise at early steps. Choosing $s$ so $\sqrt{\beta_0} \lesssim \frac{1}{127.5}$ ensures initial noise is small, but not zero.
+
+\textbf{Why Cosine?}
+\begin{itemize}
+    \item Smooth transition
+    \item Flat at the boundaries, linear-ish in the middle
+    \item Easy analytic form
+\end{itemize}
+Cosine is not special; any shape with these characteristics suffices.
+
+\textbf{Summary:}
+\begin{align*}
+    &\boxed{\text{Linear } \beta_t \;\;\Rightarrow\;\; \bar{\alpha}_t \text{ decays too fast}}\\
+    &\boxed{\text{Cosine } \bar{\alpha}_t \;\;\Rightarrow\;\; \text{Information preserved longer}}
+\end{align*}
+
+
+
+\section{EDM Sampler}
