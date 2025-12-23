@@ -1,0 +1,77 @@
+\documentclass[12pt,a4paper]{report}
+
+% -------------------- Packages --------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{tocloft}
+\usepackage{hyperref}  % Should be loaded last
+
+% -------------------- Spacing --------------------
+\onehalfspacing
+
+% -------------------- Header & Footer --------------------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Technical Report}
+\fancyhead[R]{\leftmark}
+\fancyfoot[C]{\thepage}
+
+\setcounter{tocdepth}{2}
+\setcounter{secnumdepth}{3}
+
+% -------------------- Document --------------------
+\begin{document}
+
+% ==================== TITLE PAGE ====================
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    {\LARGE\bfseries Diffusion Model Training\par}
+    \vspace{1.5cm}
+    {\Large Sai Sri Teja Kuppa\par}
+    \vspace{0.5cm}
+    {\large Immerso.ai\par}
+    \vspace{0.5cm}
+    {\large \today\par}
+    \vfill
+\end{titlepage}
+
+\pagenumbering{roman}
+
+% ==================== ABSTRACT ====================
+\input{tex/abstract}
+\newpage
+
+% ==================== TOC ====================
+\tableofcontents
+\newpage
+
+% ==================== LIST OF FIGURES ====================
+\listoffigures
+\addcontentsline{toc}{chapter}{List of Figures}
+\newpage
+
+% ==================== LIST OF TABLES ====================
+\listoftables
+\addcontentsline{toc}{chapter}{List of Tables}
+\newpage
+
+\pagenumbering{arabic}
+
+% ==================== CHAPTERS ====================
+\input{tex/introduction}
+\input{tex/related_work}
+\input{tex/methodology}
+\input{tex/experiments}
+\input{tex/conclusion}
+
+% ==================== APPENDIX ====================
+\appendix
+\input{tex/appendix}
+
+\end{document}

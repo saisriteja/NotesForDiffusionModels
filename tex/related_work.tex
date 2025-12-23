@@ -1,0 +1,1183 @@
+\chapter{Sampling Strategies}
+% Add your related work content here
+
+This chapter presents an overview of various sampling strategies used in diffusion models. The following is a comprehensive list of sampling strategies that will be discussed:
+
+\begin{enumerate}
+    \item \textbf{DDIM} (Denoising Diffusion Implicit Models)
+    \item \textbf{DDPM} (Denoising Diffusion Probabilistic Models)
+    \item \textbf{iDDPM} (Improved Denoising Diffusion Probabilistic Models)
+    \item \textbf{Euler Sampler} and variants
+\end{enumerate}
+
+\vspace{0.5em}
+
+
+
+
+
+
+\section{DDPM Sampler}
+
+the posterior will remain a Gaussian if the likelihood and the prior are both Gaussians. if each transitional distribution above is a Gaussian, the joint distribution is
+also a Gaussian. transition distributions are only dependent on its immediate previous stage
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/basic_blocks.png}
+    \caption{Basic blocks architecture}
+    \label{fig:basic_blocks}
+\end{figure}
+
+
+The transition distribution $q_\phi(x_t \mid x_{t-1})$ is defined as
+\begin{equation}
+q_\phi(x_t \mid x_{t-1})
+\;\stackrel{\mathrm{def}}{=}\;
+\mathcal{N}\!\left(
+x_t \;\middle|\;
+\sqrt{\alpha_t}\,x_{t-1},\,
+(1 - \alpha_t)\mathbf{I}
+\right).
+\end{equation}
+
+
+In other words, $q_\phi(x_t \mid x_{t-1})$ is a Gaussian distribution. The mean is $\sqrt{\alpha_t}\, x_{t-1}$ and the variance is $1 - \alpha_t$. The choice of the scaling factor $\sqrt{\alpha_t}$ ensures that the magnitude of the variance is preserved throughout the process, preventing it from exploding or vanishing after many iterations.
+
+\subsection{The transition distribution is a Gaussian}
+
+
+Consider the following recursive formulation for the forward process:
+\begin{equation}
+    x_t = a x_{t-1} + b \epsilon_{t-1}, \qquad \epsilon_{t-1} \sim \mathcal{N}(0, \mathbf{I})
+    \label{eq:recursion}
+\end{equation}
+
+By recursively substituting $x_{t-1}, x_{t-2}, \ldots$, we obtain:
+\begin{align*}
+    x_t &= a x_{t-1} + b \epsilon_{t-1} \\
+        &= a(a x_{t-2} + b \epsilon_{t-2}) + b \epsilon_{t-1} \\
+        &= a^2 x_{t-2} + a b \epsilon_{t-2} + b \epsilon_{t-1} \\
+        &\;\;\;\vdots \\
+        &= a^t x_0 + b \sum_{i=0}^{t-1} a^i \epsilon_{t-1-i}
+\end{align*}
+
+Define:
+\[
+    w_t = \sum_{i=0}^{t-1} a^i \epsilon_{t-1-i}
+\]
+Since each $\epsilon_{i}$ is standard Gaussian and independent, $w_t$ is also a zero-mean Gaussian random variable. The covariance of $w_t$ is given by:
+\begin{align*}
+    \mathrm{Cov}[w_t] &= \mathbb{E}[w_t w_t^T] \\
+    &= \sum_{i=0}^{t-1} (a^i)^2 \mathrm{Cov}(\epsilon_{t-1-i}) \\
+    &= \sum_{i=0}^{t-1} a^{2i} \mathbf{I} \\
+    &= \frac{1 - a^{2t}}{1 - a^2} \mathbf{I}
+\end{align*}
+
+Thus,
+\[
+    \mathrm{Cov}[b w_t] = b^2 \frac{1 - a^{2t}}{1 - a^2} \mathbf{I}
+\]
+
+As $t \to \infty$, and for $0 < a < 1$, we have $a^{2t} \to 0$, so
+\[
+    \lim_{t \to \infty} \mathrm{Cov}[b w_t] = \frac{b^2}{1 - a^2} \mathbf{I}
+\]
+
+If we desire $\lim_{t \to \infty} \mathrm{Cov}[x_t] = \mathbf{I}$, then we set:
+\[
+    \frac{b^2}{1 - a^2} = 1 \qquad \implies \qquad b = \sqrt{1 - a^2}
+\]
+
+Letting $a = \sqrt{\alpha}$ and consequently $b = \sqrt{1 - \alpha}$, the update rule becomes:
+\begin{equation}
+    x_t = \sqrt{\alpha} x_{t-1} + \sqrt{1 - \alpha}\ \epsilon_{t-1}
+    \label{eq:ddpm_forward_step}
+\end{equation}
+
+
+
+\subsection{Forward Step in Diffusion Process}
+
+
+The goal is to somehow get the \(x_t\) in a closed form. to do this, we will use the recursion formula and the fact that the noise is Gaussian.
+
+
+\begin{align*}
+    x_t &= \sqrt{\alpha_t} x_{t-1} + \sqrt{1 - \alpha_t}\,\epsilon_{t-1} \\
+        &= \sqrt{\alpha_t} \left( \sqrt{\alpha_{t-1}} x_{t-2} + \sqrt{1 - \alpha_{t-1}}\,\epsilon_{t-2} \right) + \sqrt{1 - \alpha_t}\,\epsilon_{t-1} \\
+        &= \sqrt{\alpha_t \alpha_{t-1}}\, x_{t-2} + \sqrt{\alpha_t (1 - \alpha_{t-1})}\, \epsilon_{t-2} + \sqrt{1 - \alpha_t}\, \epsilon_{t-1}.
+\end{align*}
+
+We notice that $x_t$ is a sum of independent Gaussian terms (as each $\epsilon_i$ is independent), so $x_t$ is also Gaussian. The new covariance for the noise part $w_1 = \sqrt{\alpha_t (1 - \alpha_{t-1})}\, \epsilon_{t-2} + \sqrt{1 - \alpha_t}\, \epsilon_{t-1}$ is:
+\begin{align*}
+    \mathbb{E}[w_1 w_1^T] &= \left[ \alpha_t (1 - \alpha_{t-1}) + (1 - \alpha_t) \right] \mathbf{I} \\
+    &= \left[ 1 - \alpha_t \alpha_{t-1} \right] \mathbf{I}.
+\end{align*}
+
+Continuing this recursion for a few more steps, we get:
+\begin{align*}
+    x_t &= \sqrt{\alpha_t \alpha_{t-1}} x_{t-2} + \sqrt{1 - \alpha_t \alpha_{t-1}}\,\epsilon_{t-2} \\
+        &= \sqrt{\alpha_t \alpha_{t-1} \alpha_{t-2}} x_{t-3} + \sqrt{1 - \alpha_t \alpha_{t-1} \alpha_{t-2}}\, \epsilon_{t-3} \\
+        &\ \ \vdots \\
+        &= \sqrt{ \prod_{i=1}^t \alpha_i }\, x_0 + \sqrt{1 - \prod_{i=1}^t \alpha_i }\, \epsilon_0.
+\end{align*}
+
+Define
+\[
+    \bar{\alpha}_t = \prod_{i=1}^{t} \alpha_i
+\]
+so the above can be written as
+\begin{equation}
+    x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1 - \bar{\alpha}_t}\, \epsilon_0,
+    \label{eq:xt_closed_form}
+\end{equation}
+where $\epsilon_0 \sim \mathcal{N}(0, \mathbf{I})$.
+
+In other words, the marginal distribution $q_\phi(x_t \mid x_0)$ is,
+\[
+    x_t \sim q_\phi(x_t \mid x_0) = \mathcal{N}\left( x_t \mid \sqrt{\bar{\alpha}_t} x_0, \left( 1 - \bar{\alpha}_t \right) \mathbf{I} \right).
+\]
+
+
+\subsection{Reverse Step in Diffusion Process}
+
+Reverse process has much more math but lets take it down step by step.
+
+\subsubsection*{Step 1: Rewrite the Likelihood Using Latent Variables}
+
+We want to compute the log-likelihood of data:
+\[
+\log p(x) = \log p(x_0)
+\]
+but $p(x_0)$ is intractable in diffusion models because $x_0$ is generated through many hidden diffusion steps.  
+
+\paragraph{Trick: Introduce latent diffusion states.} 
+Define intermediate latent variables:
+\[
+x_{1:T} = \{x_1, x_2, \dots, x_T\}
+\]
+which are noise-corrupted versions of $x_0$ (the forward diffusion chain).  
+Collectively:
+\[
+x_{0:T} = \{x_0, x_1, \dots, x_T\}.
+\]
+
+\paragraph{Why this helps.} 
+Instead of treating $x_0$ as appearing ``from nowhere'', we view it as part of a joint trajectory:
+\[
+p(x_{0:T})
+\]
+and obtain the marginal:
+\[
+p(x_0) = \int p(x_{0:T}) \, dx_{1:T}.
+\]
+Taking logs:
+\[
+\log p(x_0) = \log \int p(x_{0:T}) \, dx_{1:T}.
+\]
+
+\paragraph{Key idea.} 
+Making the hidden steps explicit allows us to write the exact likelihood of $x_0$ as a marginal over the diffusion trajectory.
+
+
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 2: Insert the Variational Distribution}
+\begin{itemize}
+    \item Multiply and divide by $q_\phi(x_{1:T} \mid x_0)$.
+    \item This is the standard \emph{variational inference trick}.
+    \item Allows us to express the likelihood as an expectation:
+    \[
+        \log p(x_0) = \log \mathbb{E}_{q_\phi}\left[\frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)}\right]
+    \]
+
+
+
+    % In LaTeX:
+
+    We multiply and divide by the same distribution $q_\phi(x_{1:T} \mid x_0)$:
+    \begin{align*}
+        \log p(x_0) &= \log \int p(x_{0:T})\, dx_{1:T} \\
+                    &= \log \int q_\phi(x_{1:T} \mid x_0) \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)}\, dx_{1:T}
+    \end{align*}
+    This operation does not change the value---it is simply multiplying by $1$---but it allows us to rewrite the integral as an expectation:
+    \begin{equation*}
+        \log p(x_0) = \log \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} \left[ 
+            \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)}
+        \right]
+    \end{equation*}
+    
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 3: Apply Jensen's Inequality}
+\begin{itemize}
+    \item Use concavity of the log.
+    \item Move the log \emph{inside} the expectation.
+    \item This creates the \emph{Evidence Lower Bound (ELBO)}:
+    \[
+        \log p(x_0) \geq 
+        \mathbb{E}_{q_\phi}\left[
+            \log \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)}
+        \right]
+    \]
+    \item From here on, everything is about \textbf{rewriting and decomposing this ELBO}.
+
+
+Now, we use Jensen’s inequality, which states that for any random variable $X$ and any concave function $f$, it holds that $f(\mathbb{E}[X]) \geq \mathbb{E}[f(X)]$. By recognizing that $f(\cdot) = \log(\cdot)$, we can show that:
+
+\[
+\log p(x) = \log \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} \left[ \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)} \right]
+\geq 
+\mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} \left[ \log \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)} \right].
+\]
+
+
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 4: Factorize the True Joint Distribution $p(x_{0:T})$}
+\begin{itemize}
+    \item Use the \emph{reverse Markov structure}.
+    \item Factor it into:
+    \begin{itemize}
+        \item a prior at time $T$
+        \item reverse transitions
+        \item a reconstruction term
+    \end{itemize}
+    \item This aligns the math with the \emph{reverse diffusion process}.
+    
+
+    We want to decouple $p(x_{0:T})$ by conditioning on $x_t$ for $x_{t-1}$. This leads to:
+
+    \[
+    p(x_{0:T}) = p(x_T) \prod_{t=1}^{T} p(x_{t-1} \mid x_t) 
+    = p(x_T) \, p(x_0 \mid x_1) \prod_{t=2}^{T} p(x_{t-1} \mid x_t).
+    \]
+
+    
+
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 5: Factorize the Variational Distribution $q_\phi(x_{1:T} \mid x_0)$}
+\begin{itemize}
+    \item Use the \emph{forward Markov structure}.
+    \item Factor it into forward transitions.
+    \item This aligns with the \emph{forward diffusion process}.
+    
+
+    For $q_\phi(x_{1:T} \mid x_0)$, we condition on $x_t$ given $x_{t-1}$. Due to the sequential structure, we can write:
+
+    \[
+    q_\phi(x_{1:T} \mid x_0) = \prod_{t=1}^{T} q_\phi(x_t \mid x_{t-1}) 
+    = q_\phi(x_T \mid x_{T-1}) \prod_{t=1}^{T-1} q_\phi(x_t \mid x_{t-1}).
+    \]
+    
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 6: Plug Both Factorizations into the ELBO}
+\begin{itemize}
+    \item Take the ratio $\frac{p}{q}$.
+    \item The log turns products into sums.
+    \item Expectation distributes over time.
+    \item This is where the ELBO starts breaking into \emph{interpretable blocks}
+\end{itemize}
+
+Use the step 4 and step 5 output in step 3.
+
+\begin{align*}
+    \log p(x) 
+    &\geq \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} 
+       \Bigg[ \log \frac{p(x_{0:T})}{q_\phi(x_{1:T} \mid x_0)} \Bigg] \\[2mm]
+    &= \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} 
+       \Bigg[ \log \frac{p(x_T) \, p(x_0 \mid x_1) \prod_{t=2}^{T} p(x_{t-1} \mid x_t)}
+                       {q_\phi(x_T \mid x_{T-1}) \prod_{t=1}^{T-1} q_\phi(x_t \mid x_{t-1})} \Bigg] \\[1mm]
+    &= \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} 
+       \Bigg[ \log \frac{p(x_T) \, p(x_0 \mid x_1) \prod_{t=1}^{T-1} p(x_t \mid x_{t+1})}
+                       {q_\phi(x_T \mid x_{T-1}) \prod_{t=1}^{T-1} q_\phi(x_t \mid x_{t-1})} \Bigg] 
+       \quad \text{(shift $t \to t+1$)} \\[1mm]
+    &= \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} 
+       \Bigg[ \log \frac{p(x_T) \, p(x_0 \mid x_1)}{q_\phi(x_T \mid x_{T-1})} \Bigg] 
+       + \mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} 
+       \Bigg[ \log \prod_{t=1}^{T-1} \frac{p(x_t \mid x_{t+1})}{q_\phi(x_t \mid x_{t-1})} \Bigg] 
+       \quad \text{(split expectation)}
+\end{align*}
+
+Now, we can decompose the first term as follows:
+
+\begin{equation}
+\mathbb{E}_{q_\phi(\mathbf{x}_{1:T} \mid \mathbf{x}_0)} 
+\Bigg[
+\log \frac{p(\mathbf{x}_T) \, p(\mathbf{x}_0 \mid \mathbf{x}_1)}
+     {q_\phi(\mathbf{x}_T \mid \mathbf{x}_{T-1})}
+\Bigg] 
+=
+\underbrace{
+\mathbb{E}_{q_\phi(\mathbf{x}_{1:T} \mid \mathbf{x}_0)}
+\Big[ \log p(\mathbf{x}_0 \mid \mathbf{x}_1) \Big]
+}_{\text{Reconstruction}}
++
+\underbrace{
+\mathbb{E}_{q_\phi(\mathbf{x}_{1:T} \mid \mathbf{x}_0)}
+\Big[ \log \frac{p(\mathbf{x}_T)}{q_\phi(\mathbf{x}_T \mid \mathbf{x}_{T-1})} \Big]
+}_{\text{Prior Matching}}.
+\label{eq:reconstruction_prior}
+\end{equation}
+
+From this decomposition, we have reconstruction and prior matching terms.
+
+
+\vspace{1em}
+\noindent
+Let us further analyze how the decomposition of the Evidence Lower Bound (ELBO) naturally splits into reconstruction and prior-matching terms.
+
+\paragraph{The Reconstruction Term.}
+The reconstruction term only depends on $x_0$ and $x_1$. We can write:
+\begin{equation*}
+\mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} \big[ \log p(x_0 \mid x_1) \big] = \mathbb{E}_{q_\phi(x_1 \mid x_0)} \big[ \log p(x_0 \mid x_1) \big]
+\end{equation*}
+This simplification occurs because of the Markov structure of $q_\phi$; for a function that only involves $x_0$ and $x_1$, conditioning on $(x_2, ..., x_T)$ is unnecessary. Thus, the reconstruction term is essentially a reconstruction log-likelihood for the first denoising step.
+
+\vspace{1em}
+
+\paragraph{The Prior Matching Term.}
+For the prior matching term, we focus on the last step of the chain:
+\begin{equation*}
+\mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} \left[ \log \frac{p(x_T)}{q_\phi(x_T \mid x_{T-1})} \right]
+\end{equation*}
+This term only depends on $x_{T-1}$ and $x_T$. Therefore, we can marginalize everything else and write:
+\begin{equation*}
+\mathbb{E}_{q_\phi(x_{1:T} \mid x_0)} [\cdot] = \mathbb{E}_{q_\phi(x_{T-1}, x_T \mid x_0)} [\cdot]
+\end{equation*}
+By applying the chain rule, we factor the joint as $q_\phi(x_T, x_{T-1} \mid x_0) = q_\phi(x_T \mid x_{T-1}, x_0) \, q_\phi(x_{T-1} \mid x_0)$. Due to the Markov nature of $q_\phi$, $q_\phi(x_T \mid x_{T-1}, x_0) = q_\phi(x_T \mid x_{T-1})$. This allows us to further factor the expectation as:
+\begin{equation*}
+\mathbb{E}_{q_\phi(x_{T-1}, x_T \mid x_0)} [\cdot] = 
+\mathbb{E}_{q_\phi(x_{T-1} \mid x_0)} \left[ \mathbb{E}_{q_\phi(x_T \mid x_{T-1})} [\cdot] \right]
+\end{equation*}
+
+\vspace{1em}
+
+\paragraph{Recognizing the KL Divergence.}
+Now, the prior matching part becomes:
+\begin{align*}
+&\mathbb{E}_{q_\phi(x_{T-1} \mid x_0)} \left[ \mathbb{E}_{q_\phi(x_T \mid x_{T-1})} 
+\left[ \log \frac{p(x_T)}{q_\phi(x_T \mid x_{T-1})} \right] \right] \\
+&\qquad = -\mathbb{E}_{q_\phi(x_{T-1} \mid x_0)} \left[ D_{\mathrm{KL}} \left( q_\phi(x_T \mid x_{T-1}) \; \Vert \; p(x_T) \right) \right]
+\end{align*}
+That is, this term represents a KL divergence between the distribution $q_\phi(x_T \mid x_{T-1})$ produced by the forward process’s last step and the target prior $p(x_T)$.
+
+\vspace{1em}
+
+\paragraph{Summary.}
+To summarize, we have:
+\begin{enumerate}
+    \item \textbf{Reconstruction:}
+        \[
+        \mathbb{E}_{q_\phi(x_1|x_0)}\big[\log p(x_0|x_1)\big]
+        \]
+        which depends only on the first reverse denoising step ($x_1 \to x_0$).
+    \item \textbf{Prior Matching:}
+        \[
+        -\,\mathbb{E}_{q_\phi(x_{T-1}|x_0)}\,\left[ D_{\mathrm{KL}}\left( q_\phi(x_T | x_{T-1})\,\Vert\, p(x_T)\right) \right]
+        \]
+        which depends only on the last forward step ($x_{T-1} \to x_T$) and encourages the final latent to match the prior.
+\end{enumerate}
+
+\vspace{1em}
+
+This decomposition is standard in DDPMs: the ELBO is written as a sum over reconstruction terms (for all timesteps) and KL divergence terms for prior matching. This structure also makes the training procedure straightforward to implement.
+
+
+
+
+
+\subsubsection*{The Final Step of ELBO Decomposition}
+
+The final remaining term in the ELBO for diffusion models is:
+\begin{equation*}
+    \mathbb{E}_{q_\phi(x_{1:T}|x_0)} \left[ \log \prod_{t=1}^{T-1} \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})} \right]
+\end{equation*}
+By the property that $\log \prod = \sum \log$, this can be rewritten as a sum over timesteps:
+\begin{equation*}
+    \sum_{t=1}^{T-1} \mathbb{E}_{q_\phi(x_{1:T}|x_0)} \left[ \log \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})} \right]
+\end{equation*}
+
+More explicitly,
+\begin{equation*}
+    \mathbb{E}_{q_\phi(x_{1:T}|x_0)}\left[\log \prod_{t=1}^{T-1} \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})}\right] =
+    \sum_{t=1}^{T-1} \mathbb{E}_{q_\phi(x_{1:T}|x_0)}\left[\log \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})} \right]
+\end{equation*}
+
+\vspace{0.5em}
+\paragraph{Reducing the Expectation}
+
+Note that for a fixed $t$, the term
+\[
+    \log \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})}
+\]
+depends only on $x_{t-1}$, $x_t$, and $x_{t+1}$. Thus, the expectation over all $x_{1:T}$ can be reduced:
+\begin{equation*}
+    \mathbb{E}_{q_\phi(x_{1:T}|x_0)}[\cdot] = \mathbb{E}_{q_\phi(x_{t-1}, x_t, x_{t+1}|x_0)}[\cdot]
+\end{equation*}
+This reduction uses the Markov property of the forward process.
+
+\vspace{0.5em}
+\paragraph{Conditional Independence Factorization}
+
+By conditional independence, we can factor:
+\begin{equation*}
+    q_\phi(x_{t-1}, x_t, x_{t+1} | x_0) = q_\phi(x_{t-1}, x_{t+1} | x_0) \, q_\phi(x_t | x_{t-1}, x_{t+1}, x_0)
+\end{equation*}
+But the Markov property gives us:
+\begin{equation*}
+    q_\phi(x_t | x_{t-1}, x_{t+1}, x_0) = q_\phi(x_t | x_{t-1})
+\end{equation*}
+Therefore, the expectation factorizes as:
+\begin{equation*}
+    \mathbb{E}_{q_\phi(x_{t-1}, x_t, x_{t+1}|x_0)}[\cdot]
+    = \mathbb{E}_{q_\phi(x_{t-1}, x_{t+1}|x_0)}\,\mathbb{E}_{q_\phi(x_t|x_{t-1})}[\cdot]
+\end{equation*}
+
+\vspace{0.5em}
+\paragraph{Recognizing KL Divergence}
+
+The inner expectation is precisely a Kullback--Leibler divergence between the forward and reverse transitions:
+\begin{equation*}
+    \mathbb{E}_{q_\phi(x_t|x_{t-1})} \left[ \log \frac{p(x_t|x_{t+1})}{q_\phi(x_t|x_{t-1})} \right]
+    = - D_{\mathrm{KL}}\left(q_\phi(x_t|x_{t-1})\,\Vert\,p(x_t|x_{t+1})\right)
+\end{equation*}
+Hence, the total sum over timesteps becomes:
+\begin{equation*}
+    -\sum_{t=1}^{T-1} \mathbb{E}_{q_\phi(x_{t-1}, x_{t+1}|x_0)}
+    \left[
+    D_{\mathrm{KL}}\big(q_\phi(x_t|x_{t-1})\,\Vert\,p(x_t|x_{t+1})\big)
+    \right]
+\end{equation*}
+
+\vspace{0.5em}
+\paragraph{Parameterization in Practice}
+
+In practice, the reverse conditionals are learned and parameterized by a neural network with parameters $\theta$:
+\begin{align*}
+    p(x_0|x_1) &\to p_\theta(x_0|x_1) \\
+    p(x_t|x_{t+1}) &\to p_\theta(x_t|x_{t+1})
+\end{align*}
+where $\theta$ are the weights of the learned reverse diffusion model.
+
+
+
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 7: Identify the Three Conceptual Terms}
+From the algebra, three kinds of terms emerge:
+\begin{enumerate}
+    \item \textbf{Reconstruction term}\\
+    Measures how well $x_1$ reconstructs $x_0$.
+    \item \textbf{Prior matching term}\\
+    Ensures the final latent $x_T$ matches the Gaussian prior.
+    \item \textbf{Consistency (transition) terms}\\
+    Enforces agreement between forward diffusion transitions and learned reverse transitions.
+\end{enumerate}
+
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\subsubsection*{Step 8: Identify a Practical Problem}
+\begin{itemize}
+    \item The consistency term requires sampling \emph{both past and future}, specifically $(x_{t-1}, x_{t+1})$.
+    \item This is awkward and inefficient.
+    \item This is the \emph{core motivation} for rewriting the ELBO.
+    
+The challenge in the above variational diffusion model is that we need to draw samples $(x_{t-1}, x_{t+1})$ from a joint distribution $q_\phi(x_{t-1}, x_{t+1} \mid x_0)$. While we can assume it is Gaussian, we still need to use future samples $x_{t+1}$ to draw the current sample $x_t$, which is not straightforward.
+
+Inspecting the consistency term, we notice that $q_\phi(x_t \mid x_{t-1})$ and $p_\theta(x_t \mid x_{t+1})$ move along two opposite directions. Thus, it appears unavoidable to use both $x_{t-1}$ and $x_{t+1}$. The question is: can we design a method to avoid handling two opposite directions while still checking consistency?
+
+A simple solution is to use Bayes' theorem:
+
+\[
+q(x_t \mid x_{t-1}) = \frac{q(x_{t-1} \mid x_t) \, q(x_t)}{q(x_{t-1})}.
+\]
+
+Conditioning on $x_0$ gives:
+
+\[
+q(x_t \mid x_{t-1}, x_0) = \frac{q(x_{t-1} \mid x_t, x_0) \, q(x_t \mid x_0)}{q(x_{t-1} \mid x_0)}.
+\]
+
+With this change in conditioning, we can switch $q(x_t \mid x_{t-1}, x_0)$ to $q(x_{t-1} \mid x_t, x_0)$ by including the additional condition variable $x_0$. The direction $q(x_{t-1} \mid x_t, x_0)$ is now aligned with $p_\theta(x_{t-1} \mid x_t)$. Therefore, a natural option for rewriting the consistency term is to calculate the KL divergence between $q_\phi(x_{t-1} \mid x_t, x_0)$ and $p_\theta(x_{t-1} \mid x_t)$.
+
+
+\end{itemize}
+
+\vspace{0.5em}
+\noindent\rule{\textwidth}{0.4pt}
+
+
+
+\subsubsection*{Step 9: Rewrite the ELBO into a Cleaner Form}
+\begin{itemize}
+    \item Prior matching becomes simpler.
+    \item Consistency becomes the KL divergence between two reverse-time distributions.
+    \item Reconstruction stays the same.
+\end{itemize}
+
+We start from the marginal likelihood of the data $x_0$:
+\begin{equation}
+\log p(x_0)
+= \log \int p(x_{0:T}) \, dx_{1:T}.
+\end{equation}
+
+Introducing a variational posterior $q_\phi(x_{1:T}\mid x_0)$ and applying Jensen’s inequality gives the ELBO:
+\begin{equation}
+\log p(x_0)
+\ge
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \frac{p(x_{0:T})}{q_\phi(x_{1:T}\mid x_0)}
+\right].
+\label{eq:elbo}
+\end{equation}
+
+\paragraph{Factorization of joint distributions.}
+The reverse diffusion model factorizes as
+\begin{equation}
+p(x_{0:T}) = p(x_T)\,p(x_0\mid x_1)\prod_{t=2}^T p(x_{t-1}\mid x_t),
+\end{equation}
+and the forward process factorizes as
+\begin{equation}
+q_\phi(x_{1:T}\mid x_0)
+= q_\phi(x_1\mid x_0)\prod_{t=2}^T q_\phi(x_t\mid x_{t-1},x_0).
+\end{equation}
+
+Substituting these into Eq.~\eqref{eq:elbo} yields
+\begin{align}
+\log p(x_0)
+&\ge
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\Bigg[
+\log
+\frac{
+p(x_T)\,p(x_0\mid x_1)\prod_{t=2}^T p(x_{t-1}\mid x_t)
+}{
+q_\phi(x_1\mid x_0)\prod_{t=2}^T q_\phi(x_t\mid x_{t-1},x_0)
+}
+\Bigg].
+\end{align}
+
+\paragraph{Splitting the chain.}
+We split the logarithm into two terms:
+\begin{align}
+&\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \frac{p(x_T)p(x_0\mid x_1)}{q_\phi(x_1\mid x_0)}
+\right]
++
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \prod_{t=2}^T
+\frac{p(x_{t-1}\mid x_t)}{q_\phi(x_t\mid x_{t-1},x_0)}
+\right].
+\label{eq:split}
+\end{align}
+
+\paragraph{Manipulating the product term.}
+Using Bayes' rule,
+\begin{equation}
+q_\phi(x_t\mid x_{t-1},x_0)
+=
+\frac{q_\phi(x_{t-1}\mid x_t,x_0)\,q_\phi(x_t\mid x_0)}
+{q_\phi(x_{t-1}\mid x_0)},
+\end{equation}
+the product becomes
+\begin{align}
+\prod_{t=2}^T
+\frac{p(x_{t-1}\mid x_t)}{q_\phi(x_t\mid x_{t-1},x_0)}
+&=
+\prod_{t=2}^T
+\frac{p(x_{t-1}\mid x_t)}{q_\phi(x_{t-1}\mid x_t,x_0)}
+\cdot
+\prod_{t=2}^T
+\frac{q_\phi(x_{t-1}\mid x_0)}{q_\phi(x_t\mid x_0)}.
+\end{align}
+
+Using the telescoping identity
+\[
+\prod_{t=2}^T \frac{a_{t-1}}{a_t} = \frac{a_1}{a_T},
+\]
+we obtain
+\begin{equation}
+\prod_{t=2}^T
+\frac{q_\phi(x_{t-1}\mid x_0)}{q_\phi(x_t\mid x_0)}
+=
+\frac{q_\phi(x_1\mid x_0)}{q_\phi(x_T\mid x_0)}.
+\end{equation}
+
+\paragraph{Combining terms.}
+Substituting back into Eq.~\eqref{eq:split} and canceling terms yields
+\begin{align}
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \frac{p(x_T)p(x_0\mid x_1)}{q_\phi(x_T\mid x_0)}
+\right]
++
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \prod_{t=2}^T
+\frac{p(x_{t-1}\mid x_t)}{q_\phi(x_{t-1}\mid x_t,x_0)}
+\right].
+\end{align}
+
+\paragraph{Reconstruction and prior matching.}
+The first term decomposes as
+\begin{align}
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}[\log p(x_0\mid x_1)]
+&= \mathbb{E}_{q_\phi(x_1\mid x_0)}[\log p(x_0\mid x_1)],
+\\
+\mathbb{E}_{q_\phi(x_{1:T}\mid x_0)}
+\left[
+\log \frac{p(x_T)}{q_\phi(x_T\mid x_0)}
+\right]
+&= -D_{\mathrm{KL}}\!\left(q_\phi(x_T\mid x_0)\,\|\,p(x_T)\right).
+\end{align}
+
+\paragraph{Consistency term.}
+The remaining sum becomes
+\begin{align}
+\sum_{t=2}^T
+\mathbb{E}_{q_\phi(x_t,x_{t-1}\mid x_0)}
+\left[
+\log \frac{p(x_{t-1}\mid x_t)}{q_\phi(x_{t-1}\mid x_t,x_0)}
+\right]
+=
+-\sum_{t=2}^T
+\mathbb{E}_{q_\phi(x_t\mid x_0)}
+\Big[
+D_{\mathrm{KL}}(q_\phi(x_{t-1}\mid x_t,x_0)\,\|\,p(x_{t-1}\mid x_t))
+\Big].
+\end{align}
+
+\paragraph{Final ELBO.}
+Replacing $p(\cdot)$ with the learnable reverse model $p_\theta(\cdot)$, the final variational lower bound is
+\begin{align}
+\log p(x_0) \ge\;
+&\underbrace{
+\mathbb{E}_{q_\phi(x_1\mid x_0)}[\log p_\theta(x_0\mid x_1)]
+}_{\text{Reconstruction}}
+-
+\underbrace{
+D_{\mathrm{KL}}(q_\phi(x_T\mid x_0)\,\|\,p(x_T))
+}_{\text{Prior Matching}}
+\\
+&-
+\underbrace{
+\sum_{t=2}^T
+\mathbb{E}_{q_\phi(x_t\mid x_0)}
+\Big[
+D_{\mathrm{KL}}(q_\phi(x_{t-1}\mid x_t,x_0)\,\|\,p_\theta(x_{t-1}\mid x_t))
+\Big]
+}_{\text{Consistency}}.
+\end{align}
+
+\subsubsection*{step 10: L1 Loss function formulation}
+
+\paragraph{Theorem 2.5.}
+The distribution $q_\phi(x_{t-1} \mid x_t, x_0)$ takes the form
+\[
+q_\phi(x_{t-1} \mid x_t, x_0)
+=
+\mathcal{N}\!\left(x_{t-1} \mid \mu_q(x_t, x_0), \Sigma_q(t)\right),
+\]
+where
+\[
+\mu_q(x_t, x_0)
+=
+\frac{(1-\alpha_{t-1})\sqrt{\alpha_t}}{1-\alpha_t} \, x_t
++
+\frac{(1-\alpha_t)\sqrt{\alpha_{t-1}}}{1-\alpha_t} \, x_0,
+\]
+and
+\[
+\Sigma_q(t)
+=
+\frac{(1-\alpha_t)(1-\sqrt{\alpha_{t-1}})}{1-\alpha_t} \, I
+\;\triangleq\;
+\sigma_q^2(t) I,
+\]
+with
+\[
+\alpha_t = \prod_{i=1}^{t} \alpha_i .
+\]
+
+\paragraph{Constructing $p_\theta(x_{t-1} \mid x_t)$.}
+An important observation is that the distribution
+$q_\phi(x_{t-1} \mid x_t, x_0)$ is completely characterized by $x_t$ and $x_0$.
+No neural network is required to estimate its mean or variance.
+Once the hyperparameters $\{\alpha_t\}$ are fixed, the distribution
+$q_\phi(x_{t-1} \mid x_t, x_0)$ is fully determined.
+
+Consider the evidence lower bound
+\[
+\begin{aligned}
+\mathrm{ELBO}_{\phi,\theta}(x)
+&=
+\mathbb{E}_{q_\phi(x_1 \mid x_0)}
+\left[ \log p_\theta(x_0 \mid x_1) \right]
+-
+D_{\mathrm{KL}}\!\left( q_\phi(x_T \mid x_0) \,\|\, p(x_T) \right) \\
+&\quad
+-
+\sum_{t=2}^{T}
+\mathbb{E}_{q_\phi(x_t \mid x_0)}
+\left[
+D_{\mathrm{KL}}\!\left(
+q_\phi(x_{t-1} \mid x_t, x_0)
+\,\|\, 
+p_\theta(x_{t-1} \mid x_t)
+\right)
+\right].
+\end{aligned}
+\]
+
+Since $q_\phi(x_{t-1} \mid x_t, x_0)$ is fixed once the noise schedule
+$\{\alpha_t\}$ is defined, there is no learning involved for this term.
+Therefore, the only learnable component inside the consistency term is
+$p_\theta(x_{t-1} \mid x_t)$.
+
+To simplify the KL divergence, $p_\theta(x_{t-1} \mid x_t)$ is chosen to
+be Gaussian:
+\[
+p_\theta(x_{t-1} \mid x_t)
+=
+\mathcal{N}\!\left(
+x_{t-1} \mid \mu_\theta(x_t), \sigma_q^2(t) I
+\right),
+\]
+where the mean $\mu_\theta(x_t)$ is parameterized by a neural network,
+and the variance is fixed to be identical to that of $q_\phi$.
+
+Placing the two distributions side by side,
+\[
+q_\phi(x_{t-1} \mid x_t, x_0)
+=
+\mathcal{N}\!\left(
+x_{t-1} \mid \mu_q(x_t, x_0), \sigma_q^2(t) I
+\right),
+\]
+\[
+p_\theta(x_{t-1} \mid x_t)
+=
+\mathcal{N}\!\left(
+x_{t-1} \mid \mu_\theta(x_t), \sigma_q^2(t) I
+\right).
+\]
+
+Since both Gaussians share the same covariance, the KL divergence reduces to
+\[
+D_{\mathrm{KL}}\!\left(
+q_\phi(x_{t-1} \mid x_t, x_0)
+\,\|\, 
+p_\theta(x_{t-1} \mid x_t)
+\right)
+=
+\frac{1}{2\sigma_q^2(t)}
+\left\|
+\mu_q(x_t, x_0) - \mu_\theta(x_t)
+\right\|_2^2.
+\]
+
+
+
+
+\subsection{Training and Inference}
+
+In this section, we discuss how to train a variational diffusion model and transform it into a denoising diffusion probabilistic model.
+
+We begin with the evidence lower bound defined previously. The ELBO suggests that training requires finding a network $\mu_\theta$ that minimizes the loss
+\[
+\frac{1}{2\sigma_q^2(t)}
+\left\|
+\mu_q(x_t, x_0) - \mu_\theta(x_t)
+\right\|^2,
+\]
+where $\mu_q(x_t, x_0)$ is known and $\mu_\theta(x_t)$ is parameterized by a neural network.
+
+Recall that
+\[
+\mu_q(x_t, x_0)
+=
+\frac{(1-\alpha_{t-1})\sqrt{\alpha_t}}{1-\alpha_t} \, x_t
++
+\frac{(1-\alpha_t)\sqrt{\alpha_{t-1}}}{1-\alpha_t} \, x_0.
+\]
+This expression depends only on $x_t$ and $x_0$, and is therefore completely determined once these variables are known.
+
+Since $\mu_\theta$ is a design choice, it can be defined in a more convenient form. We choose
+\[
+\mu_\theta(x_t)
+=
+\frac{(1-\alpha_{t-1})\sqrt{\alpha_t}}{1-\alpha_t} \, x_t
++
+\frac{(1-\alpha_t)\sqrt{\alpha_{t-1}}}{1-\alpha_t} \, \hat{x}_\theta(x_t),
+\]
+where $\hat{x}_\theta(x_t)$ is a neural network that predicts the clean image from $x_t$.
+
+Substituting these expressions into the loss gives
+\[
+\frac{1}{2\sigma_q^2(t)}
+\left\|
+\mu_q(x_t, x_0) - \mu_\theta(x_t)
+\right\|^2
+=
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2 \alpha_{t-1}}{(1-\alpha_t)^2}
+\left\|
+\hat{x}_\theta(x_t) - x_0
+\right\|^2.
+\]
+
+As a result, the ELBO can be written as
+\[
+\mathrm{ELBO}_\theta(x)
+=
+\mathbb{E}_{q(x_1 \mid x_0)}
+\left[
+\log p_\theta(x_0 \mid x_1)
+\right]
+-
+\sum_{t=2}^{T}
+\mathbb{E}_{q(x_t \mid x_0)}
+\left[
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2 \alpha_{t-1}}{(1-\alpha_t)^2}
+\left\|
+\hat{x}_\theta(x_t) - x_0
+\right\|^2
+\right],
+\]
+where the prior matching term has been omitted.
+
+The likelihood term can be expressed as
+\[
+\log p_\theta(x_0 \mid x_1)
+=
+\log \mathcal{N}\!\left(x_0 \mid \mu_\theta(x_1), \sigma_q^2(1) I \right)
+\propto
+-
+\frac{1}{2\sigma_q^2(1)}
+\left\|
+\hat{x}_\theta(x_1) - x_0
+\right\|^2,
+\]
+using the fact that $\alpha_0 = 1$.
+
+Substituting this into the ELBO yields
+\[
+\mathrm{ELBO}_\theta(x)
+=
+-
+\sum_{t=1}^{T}
+\mathbb{E}_{q(x_t \mid x_0)}
+\left[
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2 \alpha_{t-1}}{(1-\alpha_t)^2}
+\left\|
+\hat{x}_\theta(x_t) - x_0
+\right\|^2
+\right].
+\]
+
+Ignoring constants and expectations, the optimization problem reduces to
+\[
+\arg\min_\theta
+\left\|
+\hat{x}_\theta(x_t) - x_0
+\right\|^2,
+\]
+which corresponds to a denoising task.
+
+However, this is not a conventional denoising problem. The noisy input $x_t$ is not arbitrary, but is sampled according to
+\[
+x_t \sim q(x_t \mid x_0)
+=
+\mathcal{N}\!\left( \sqrt{\alpha_t} x_0, (1-\alpha_t) I \right),
+\]
+or equivalently,
+\[
+x_t = \sqrt{\alpha_t} x_0 + \sqrt{1-\alpha_t} \, \epsilon_t,
+\quad
+\epsilon_t \sim \mathcal{N}(0, I).
+\]
+
+Moreover, the denoising loss is weighted differently across timesteps through the factor
+\[
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2 \alpha_{t-1}}{(1-\alpha_t)^2}.
+\]
+
+Using Monte Carlo sampling to approximate the expectation, the final training objective becomes
+\[
+\arg\min_\theta
+\sum_{x_0 \in \mathcal{X}}
+\sum_{t=1}^{T}
+\frac{1}{M}
+\sum_{m=1}^{M}
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2 \alpha_{t-1}}{(1-\alpha_t)^2}
+\left\|
+\hat{x}_\theta
+\!\left(
+\sqrt{\alpha_t} x_0 + \sqrt{1-\alpha_t} \, \epsilon_t^{(m)}
+\right)
+-
+x_0
+\right\|^2,
+\]
+where $\epsilon_t^{(m)} \sim \mathcal{N}(0, I)$ and $\mathcal{X}$ denotes the training dataset.
+
+Thus, training a diffusion model reduces to training a denoiser $\hat{x}_\theta(\cdot)$, which is why the resulting model is referred to as a denoising diffusion probabilistic model.
+
+
+
+
+\subsection{Prediction of Noise}
+
+We consider the forward diffusion process defined as
+\[
+x_t = \sqrt{\alpha_t}\,x_0 + \sqrt{1-\alpha_t}\,\epsilon_0,
+\qquad \epsilon_0 \sim \mathcal{N}(0,I).
+\]
+Rearranging this expression gives
+\[
+x_0 = \frac{x_t - \sqrt{1-\alpha_t}\,\epsilon_0}{\sqrt{\alpha_t}}.
+\]
+
+The posterior mean of the reverse process can originally be written as a function of $x_t$ and $x_0$.
+By substituting the above expression for $x_0$, the posterior mean can instead be expressed in terms of
+$x_t$ and the noise variable $\epsilon_0$:
+\[
+\mu_q(x_t,x_0)
+= \frac{1}{\sqrt{\alpha_t}}\,x_t
+- \frac{1-\alpha_t}{\sqrt{\alpha_t(1-\alpha_t)}}\,\epsilon_0.
+\]
+
+This reformulation shows that the reverse-process mean depends on the noise added during the forward
+diffusion step rather than directly on the clean image. Motivated by this observation, we parameterize
+the model mean using a neural network that predicts the noise:
+\[
+\mu_\theta(x_t)
+= \frac{1}{\sqrt{\alpha_t}}\,x_t
+- \frac{1-\alpha_t}{\sqrt{\alpha_t(1-\alpha_t)}}\,\hat{\epsilon}_\theta(x_t),
+\]
+where $\hat{\epsilon}_\theta(x_t)$ denotes the network output.
+
+Substituting these expressions into the variational objective yields an evidence lower bound that depends
+on the discrepancy between the predicted noise and the true noise:
+\[
+\mathcal{L}_{\text{ELBO}}(\theta)
+= - \sum_{t=1}^{T}
+\mathbb{E}_{x_0,\epsilon_0}
+\left[
+\frac{1}{2\sigma_q^2(t)}
+\frac{(1-\alpha_t)^2}{\alpha_t(1-\alpha_t)}
+\left\|
+\hat{\epsilon}_\theta\!\left(
+\sqrt{\alpha_t}x_0 + \sqrt{1-\alpha_t}\,\epsilon_0
+\right)
+- \epsilon_0
+\right\|^2
+\right].
+\]
+
+As a result, training the diffusion model reduces to a denoising problem in which the network learns to
+predict the noise injected at each diffusion step. This formulation is commonly referred to as
+\emph{noise prediction} in denoising diffusion probabilistic models.
+
+
+
+
+\subsection{Probability Distributions in DDIM}
+
+To motivate DDIM, consider a special choice of parameters where the noise schedule is reparameterized by replacing $\alpha_t$ with the ratio $\alpha_t / \alpha_{t-1}$. With this choice, the forward transition distribution is defined as
+\[
+q(x_t \mid x_{t-1}) \coloneqq \mathcal{N}\!\left(
+x_t \,\middle|\, \sqrt{\frac{\alpha_t}{\alpha_{t-1}}}\,x_{t-1},
+\left(1 - \frac{\alpha_t}{\alpha_{t-1}}\right) I
+\right).
+\]
+
+This parameterization does not have a strong physical interpretation, but it significantly simplifies notation. In particular, the product of the ratios satisfies
+\[
+\alpha_t = \prod_{i=1}^t \frac{\alpha_i}{\alpha_{i-1}} = \alpha_t,
+\]
+assuming $\alpha_0 = 1$. As a result, the marginal distribution takes the familiar form
+\[
+q(x_t \mid x_0) = \mathcal{N}\!\left( x_t \mid \sqrt{\alpha_t}\,x_0, (1 - \alpha_t) I \right).
+\]
+
+Using reparameterization, the noisy sample $x_t$ can be written as
+\[
+x_t = \sqrt{\alpha_t}\,x_0 + \sqrt{1 - \alpha_t}\,\epsilon,
+\qquad \epsilon \sim \mathcal{N}(0, I).
+\]
+By the same argument, one can express
+\[
+x_{t-1} = \sqrt{\alpha_{t-1}}\,x_0 + \sqrt{1 - \alpha_{t-1}}\,\epsilon,
+\qquad \epsilon \sim \mathcal{N}(0, I).
+\]
+
+The key observation in DDIM is that instead of treating $\epsilon$ as an independent Gaussian noise variable, it can be expressed in terms of $x_t$ and $x_0$. From the expression for $x_t$, we have
+\[
+\sqrt{1 - \alpha_t}\,\epsilon = x_t - \sqrt{\alpha_t}\,x_0,
+\]
+which implies
+\[
+\epsilon = \frac{x_t - \sqrt{\alpha_t}\,x_0}{\sqrt{1 - \alpha_t}}.
+\]
+
+Substituting this expression into the formula for $x_{t-1}$ yields
+\[
+x_{t-1}
+=
+\sqrt{\alpha_{t-1}}\,x_0
++
+\sqrt{1 - \alpha_{t-1}}
+\left(
+\frac{x_t - \sqrt{\alpha_t}\,x_0}{\sqrt{1 - \alpha_t}}
+\right).
+\]
+
+This formulation differs fundamentally from the standard DDPM construction. In DDPM, the stochasticity is injected by an independent Gaussian noise term, which simplifies theoretical analysis but leads to slow ancestral sampling. In contrast, the above expression replaces the random noise by a deterministic estimate constructed from $x_t$ and $x_0$.
+
+This modification enables a crucial design choice in DDIM: the ability to define transition distributions such that the marginal distribution remains invariant in form. Specifically, the goal is to ensure that
+\[
+q(x_{t-1} \mid x_0) = \mathcal{N}\!\left( \sqrt{\alpha_{t-1}}\,x_0, (1 - \alpha_{t-1}) I \right),
+\]
+which mirrors the structure of $q(x_t \mid x_0)$. Maintaining this marginal form is essential, since the forward process must interpolate smoothly between the data distribution at $t=0$ and pure Gaussian noise at $t=T$.
+
+While many choices of transition distributions $q(x_{t-1} \mid x_t, x_0)$ are possible, only a restricted class preserves the desired marginal behavior. Accordingly, DDIM defines the conditional distribution as
+\[
+q(x_{t-1} \mid x_t, x_0)
+=
+\mathcal{N}\!\left(
+\sqrt{\alpha_{t-1}}\,x_0
++
+\sqrt{1 - \alpha_{t-1}}
+\left(
+\frac{x_t - \sqrt{\alpha_t}\,x_0}{\sqrt{1 - \alpha_t}}
+\right),
+\sigma_t^2 I
+\right),
+\]
+where $\sigma_t$ is a hyperparameter controlling the amount of stochasticity. Setting $\sigma_t = 0$ yields a fully deterministic reverse process, which is the defining characteristic of DDIM.
+
+
+\subsection{Inference for DDIM}
+
+Inference in DDIM is derived from the transition distribution of the forward process.
+Given a noisy sample $x_t$, the forward process can be written as
+\[
+x_t
+=
+\sqrt{\alpha_t}\,x_0
++
+\sqrt{1 - \alpha_t}\,\epsilon,
+\]
+where $\epsilon$ is Gaussian noise.
+
+During inference, $x_t$ is given and the goal is to recover an estimate of $x_0$.
+Rearranging the above expression yields
+\[
+x_0
+=
+\frac{1}{\sqrt{\alpha_t}}
+\left(
+x_t - \sqrt{1 - \alpha_t}\,\epsilon
+\right).
+\]
+
+Since the true noise $\epsilon$ is unknown, it is replaced by a neural network estimate
+$\epsilon_\theta^{(t)}(x_t)$. This leads to the definition
+\[
+f_\theta^{(t)}(x_t)
+\coloneqq
+\frac{1}{\sqrt{\alpha_t}}
+\left(
+x_t - \sqrt{1 - \alpha_t}\,\epsilon_\theta^{(t)}(x_t)
+\right),
+\]
+which serves as an estimate of the original clean signal $x_0$.
+
+The DDIM transition distribution is defined as $q(x_{t-1} \mid x_t, x_0)$.
+Since $x_0$ is unknown during inference, it is replaced by $f_\theta^{(t)}(x_t)$, giving
+\[
+p_\theta(x_{t-1} \mid x_t)
+\coloneqq
+q(x_{t-1} \mid x_t, f_\theta^{(t)}(x_t)).
+\]
+
+Substituting this estimate into the transition distribution yields
+\[
+p_\theta(x_{t-1} \mid x_t)
+=
+\mathcal{N}\!\left(
+\sqrt{\alpha_{t-1}}\,f_\theta^{(t)}(x_t)
++
+\sqrt{1 - \alpha_{t-1} - \sigma_t^2}
+\,
+\frac{x_t - \sqrt{\alpha_t}\,f_\theta^{(t)}(x_t)}{\sqrt{1 - \alpha_t}},
+\;
+\sigma_t^2 I
+\right).
+\]
+
+Replacing $f_\theta^{(t)}(x_t)$ by its explicit expression leads to
+\[
+p_\theta(x_{t-1} \mid x_t)
+=
+\mathcal{N}\!\left(
+\sqrt{\alpha_{t-1}}
+\frac{x_t - \sqrt{1 - \alpha_t}\,\epsilon_\theta^{(t)}(x_t)}{\sqrt{\alpha_t}}
++
+\sqrt{1 - \alpha_{t-1} - \sigma_t^2}\,
+\epsilon_\theta^{(t)}(x_t),
+\;
+\sigma_t^2 I
+\right).
+\]
+
+Using reparameterization, the DDIM sampling update becomes
+\[
+x_{t-1}
+=
+\sqrt{\alpha_{t-1}}
+\frac{x_t - \sqrt{1 - \alpha_t}\,\epsilon_\theta^{(t)}(x_t)}{\sqrt{\alpha_t}}
++
+\sqrt{1 - \alpha_{t-1} - \sigma_t^2}\,
+\epsilon_\theta^{(t)}(x_t)
++
+\sigma_t \,\epsilon_t,
+\qquad
+\epsilon_t \sim \mathcal{N}(0, I).
+\]
+
+For the special case $t = 1$, the reverse process is defined as
+\[
+p_\theta(x_0 \mid x_1) = \mathcal{N}\!\left(f_\theta^{(1)}(x_1), \sigma_1^2 I \right),
+\]
+ensuring that the final reconstruction is supported everywhere.
